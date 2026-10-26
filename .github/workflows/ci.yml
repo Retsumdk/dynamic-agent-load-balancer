@@ -52,17 +52,15 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
     steps:
-      - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Install from this commit via git (runs prepare script)
-        run: npm install --no-fund --no-audit "github:Retsumdk/dynamic-agent-load-balancer#${{ github.sha }}"
-
-      - name: Node ESM import smoke
+      - name: Install from this commit via git and smoke-test
         run: |
+          mkdir -p "$RUNNER_TEMP/probe" && cd "$RUNNER_TEMP/probe"
+          npm init -y >/dev/null
+          npm install --no-fund --no-audit "github:Retsumdk/dynamic-agent-load-balancer#${{ github.sha }}"
           node --input-type=module -e "
             import { FleetBalancer } from 'dynamic-agent-load-balancer';
             const balancer = new FleetBalancer();
@@ -75,6 +73,4 @@ jobs:
             if (snapshot.completed !== 1) throw new Error('expected 1 completed');
             console.log('git-install probe ok:', assignment.agentId, snapshot);
           "
-
-      - name: CLI bin smoke
-        run: ./node_modules/.bin/dalb version
+          ./node_modules/.bin/dalb version
