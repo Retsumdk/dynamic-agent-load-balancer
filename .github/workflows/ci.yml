@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck (src)
+        run: bunx tsc --noEmit
+
+      - name: Typecheck (src + tests)
+        run: bunx tsc -p tsconfig.test.json --noEmit
+
+      - name: Build
+        run: bun run build
+
+      - name: Test
+        run: bun test
+
+      - name: Demo determinism
+        run: |
+          bun src/demo.ts > /tmp/demo-a.txt
+          bun src/demo.ts > /tmp/demo-b.txt
+          sha256sum /tmp/demo-a.txt /tmp/demo-b.txt
+          diff -u /tmp/demo-a.txt /tmp/demo-b.txt
+
+      - name: CLI smoke (exit codes)
+        run: |
+          bun dist/cli-run.js version
+          echo '{"agents":[{"id":"a","capabilities":["t"],"maxConcurrency":1}],"tasks":[{"id":"t1","requiredCapabilities":["t"],"durationMs":5}]}' > /tmp/smoke.json
+          bun dist/cli-run.js run /tmp/smoke.json > /dev/null
+          if bun dist/cli-run.js run /tmp/does-not-exist.json 2>/dev/null; then
+            echo "expected non-zero exit for missing plan"; exit 1
+          fi
+          node dist/cli-run.js version
+
+  node-install:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install from this commit via git (runs prepare: tsc)
+        run: npm install --no-fund --no-audit "github:Retsumdk/dynamic-agent-load-balancer#${{ github.sha }}"
+
+      - name: Node ESM import smoke
+        run: |
+          node --input-type=module -e "
+            import { FleetBalancer } from 'dynamic-agent-load-balancer';
+            const balancer = new FleetBalancer();
+            balancer.registerAgent({ id: 'w1', capabilities: ['ocr'], maxConcurrency: 1 });
+            balancer.submit({ id: 't1', requiredCapabilities: ['ocr'] });
+            const assignment = balancer.dispatch();
+            if (!assignment) throw new Error('expected an assignment');
+            balancer.complete('t1');
+            const snapshot = balancer.snapshot();
+            if (snapshot.completed !== 1) throw new Error('expected 1 completed');
+            console.log('git-install probe ok:', assignment.agentId, snapshot);
+          "
+
+      - name: CLI bin smoke
+        run: ./node_modules/.bin/dalb version
