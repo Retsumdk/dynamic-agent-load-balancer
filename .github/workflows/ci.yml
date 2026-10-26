@@ -58,7 +58,7 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install from this commit via git (runs prepare: tsc)
+      - name: Install from this commit via git (runs prepare script)
         run: npm install --no-fund --no-audit "github:Retsumdk/dynamic-agent-load-balancer#${{ github.sha }}"
 
       - name: Node ESM import smoke
